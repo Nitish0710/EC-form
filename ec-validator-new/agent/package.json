@@ -1,0 +1,26 @@
+{
+  "name": "ec-validator-agent",
+  "version": "1.0.0",
+  "description": "Eve agent for EC validation",
+  "type": "module",
+  "main": "agent.ts",
+  "scripts": {
+    "dev": "echo 'Eve CLI not installed. Install with: npm install -g @vercel/eve' && echo 'Agent structure ready for Eve integration'",
+    "build": "echo 'Eve build - pending Eve CLI installation'",
+    "deploy": "vercel"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@vercel/blob": "^2.4.1",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.0.379",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
