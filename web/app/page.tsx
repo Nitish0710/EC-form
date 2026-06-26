@@ -159,7 +159,7 @@ export default function Home() {
                 comment,
                 reviewed_at: new Date().toISOString(),
               },
-              effective_status: action === 'override' ? 'DISMISSED' : check.status,
+              effective_status: action === 'override' ? 'DISMISSED' : 'FLAG',
             };
           }
           return check;
