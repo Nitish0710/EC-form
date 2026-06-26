@@ -5,10 +5,11 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Use local worker copy (in /public) to avoid CDN version mismatches
-if (typeof window !== 'undefined') {
-  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-}
+// Let webpack resolve the worker path from node_modules at build time
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
 
 interface BBox {
   page: number;
@@ -113,6 +114,8 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
             <Document
               file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
+              onLoadError={(err) => console.error('[PdfPanel] Load error:', err)}
+              error={<div className="p-4 text-red-500 text-sm">Failed to load PDF. Check browser console for details.</div>}
               className="border border-gray-400 shadow-lg bg-white"
             >
               <Page
