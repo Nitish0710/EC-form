@@ -305,11 +305,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
     }
 
-    // Step 1: Fetch PDF from Blob
+    // Step 1: Fetch PDF from Blob (private store requires token in Authorization header)
     console.log(`[Validate] Fetching PDF from ${blobUrl}`);
-    const pdfResponse = await fetch(blobUrl);
+    const pdfResponse = await fetch(blobUrl, {
+      headers: {
+        Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
+      },
+    });
     if (!pdfResponse.ok) {
-      throw new Error(`Failed to fetch PDF: ${pdfResponse.statusText}`);
+      throw new Error(`Failed to fetch PDF: ${pdfResponse.status} ${pdfResponse.statusText}`);
     }
     const pdfBuffer = await pdfResponse.arrayBuffer();
     const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
