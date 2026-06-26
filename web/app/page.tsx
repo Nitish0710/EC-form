@@ -51,12 +51,15 @@ export default function Home() {
       const newEcId = generateEcId(file.name);
       setEcId(newEcId);
       
-      // Upload to Blob
+      // Set local object URL immediately for the PDF viewer (avoids private Blob access issues)
+      const localUrl = URL.createObjectURL(file);
+      setPdfUrl(localUrl);
+
+      // Upload to Blob (server-side validation only)
       console.log('[Upload] Uploading file to Blob...');
       const uploadResult = await uploadToBlob(file);
       console.log('[Upload] File uploaded:', uploadResult.url);
-      
-      setPdfUrl(uploadResult.url);
+
       setIsUploading(false);
       
       // Trigger validation
