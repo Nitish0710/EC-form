@@ -295,29 +295,17 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
 
 export async function POST(request: NextRequest) {
   try {
-    const { blobUrl, ecId } = await request.json();
+    const { pdfBase64, ecId } = await request.json();
 
-    if (!blobUrl || !ecId) {
-      return NextResponse.json({ success: false, error: 'Missing blobUrl or ecId' }, { status: 400 });
+    if (!pdfBase64 || !ecId) {
+      return NextResponse.json({ success: false, error: 'Missing pdfBase64 or ecId' }, { status: 400 });
     }
 
     if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json({ success: false, error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
     }
 
-    // Step 1: Fetch PDF from Blob (private store requires token in Authorization header)
-    console.log(`[Validate] Fetching PDF from ${blobUrl}`);
-    const pdfResponse = await fetch(blobUrl, {
-      headers: {
-        Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
-      },
-    });
-    if (!pdfResponse.ok) {
-      throw new Error(`Failed to fetch PDF: ${pdfResponse.status} ${pdfResponse.statusText}`);
-    }
-    const pdfBuffer = await pdfResponse.arrayBuffer();
-    const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
-    console.log(`[Validate] PDF fetched: ${(pdfBuffer.byteLength / 1024).toFixed(0)} KB`);
+    console.log(`[Validate] PDF received: ${(pdfBase64.length * 0.75 / 1024).toFixed(0)} KB`);
 
     // Step 2: Extract fields via Claude
     console.log(`[Validate] Calling Claude for extraction...`);

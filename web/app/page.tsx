@@ -51,19 +51,15 @@ export default function Home() {
       const newEcId = generateEcId(file.name);
       setEcId(newEcId);
       
-      // Set local object URL immediately for the PDF viewer (avoids private Blob access issues)
+      // Set local object URL for the PDF viewer
       const localUrl = URL.createObjectURL(file);
       setPdfUrl(localUrl);
-
-      // Upload to Blob (server-side validation only)
-      console.log('[Upload] Uploading file to Blob...');
-      const uploadResult = await uploadToBlob(file);
-      console.log('[Upload] File uploaded:', uploadResult.url);
-
       setIsUploading(false);
-      
-      // Trigger validation
-      await handleValidation(uploadResult.url, newEcId);
+
+      // Convert file to base64 and send directly to validate API (no server-side blob fetch needed)
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      await handleValidation(base64, newEcId);
       
     } catch (err) {
       console.error('[Upload] Error:', err);
@@ -72,17 +68,17 @@ export default function Home() {
     }
   };
 
-  const handleValidation = async (blobUrl: string, ecIdValue: string) => {
+  const handleValidation = async (pdfBase64: string, ecIdValue: string) => {
     try {
       setIsValidating(true);
       setError(null);
-      
+
       console.log('[Validate] Starting validation...');
       const response = await fetch('/api/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          blobUrl,
+          pdfBase64,
           ecId: ecIdValue,
         }),
       });
