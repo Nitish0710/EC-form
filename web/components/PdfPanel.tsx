@@ -5,9 +5,9 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Let webpack resolve the worker path from node_modules at build time
+// Must use react-pdf's own bundled pdfjs-dist worker (not the top-level one — versions must match)
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
+  'react-pdf/node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url,
 ).toString();
 
