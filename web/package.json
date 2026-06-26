@@ -11,7 +11,7 @@
   "dependencies": {
     "@vercel/blob": "^2.4.1",
     "ai": "^6.0.209",
-    "next": "^9.3.3",
+    "next": "^15.2.0",
     "pdfjs-dist": "^4.0.379",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
