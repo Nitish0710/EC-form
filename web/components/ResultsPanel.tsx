@@ -182,13 +182,47 @@ export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFee
                   Flagged
                 </div>
                 {flagChecks.map(check => (
-                  <FlagCard key={check.check_id} check={check} onFeedback={onFeedback} />
+                  <FlagCard key={check.check_id} check={check} onFeedback={onFeedback} onHighlight={onHighlight} />
                 ))}
               </div>
             )}
             {passChecks.length > 0 && (
-              <div className="text-xs text-gray-600 mb-2">
-                {passChecks.length} checks passed
+              <div className="mb-5">
+                <div className="text-[9px] font-bold tracking-widest uppercase text-gray-600 px-1 pb-2 border-b border-gray-300 mb-3">
+                  Passed
+                </div>
+                {passChecks.map(check => (
+                  <div
+                    key={check.check_id}
+                    className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-200 cursor-pointer"
+                    onClick={() => onHighlight(check.highlight_refs || [])}
+                  >
+                    <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
+                      {check.check_id}
+                    </div>
+                    <div className="flex-1 text-xs text-gray-700">{check.check_name}</div>
+                    <div className="text-green-600 text-sm font-bold">✓</div>
+                    <div className="font-mono text-[10px] text-gray-500 text-right max-w-[100px] truncate">
+                      {check.found}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {naChecks.length > 0 && (
+              <div className="mb-5">
+                <div className="text-[9px] font-bold tracking-widest uppercase text-gray-600 px-1 pb-2 border-b border-gray-300 mb-3">
+                  Not applicable
+                </div>
+                {naChecks.map(check => (
+                  <div key={check.check_id} className="flex items-center gap-3 px-3 py-2 rounded mb-1 opacity-60">
+                    <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
+                      {check.check_id}
+                    </div>
+                    <div className="flex-1 text-xs text-gray-500">{check.check_name}</div>
+                    <div className="font-mono text-[10px] text-gray-400">—</div>
+                  </div>
+                ))}
               </div>
             )}
           </>

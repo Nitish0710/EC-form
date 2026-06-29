@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -18,9 +18,10 @@ interface PdfPanelProps {
   pdfUrl: string | null;
   extractionData: any;
   highlightRefs: string[];
+  highlightKey: number;
 }
 
-export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfPanelProps) {
+export default function PdfPanel({ pdfUrl, extractionData, highlightRefs, highlightKey }: PdfPanelProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
@@ -34,19 +35,21 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
     setPdfDoc(pdf);
   }
 
-  // Jump to relevant page when highlight refs change
+  // Jump to relevant page when highlight fires
   useEffect(() => {
     if (highlightRefs.length === 0 || !extractionData?.fields) return;
     for (const ref of highlightRefs) {
-      const field = extractionData.fields[ref];
-      if (field?.page && field.page >= 1) {
-        setPageNumber(field.page);
+      const page = extractionData.fields[ref]?.page;
+      if (page && page >= 1) {
+        setPageNumber(page);
         return;
       }
     }
-  }, [highlightRefs, extractionData]);
+  // highlightKey ensures re-trigger even when same refs are clicked again
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightKey]);
 
-  // Search text content for field values and compute overlay boxes
+  // Search for field values in annotations (fillable PDFs) then text content
   useEffect(() => {
     if (!pdfDoc || highlightRefs.length === 0 || !extractionData?.fields) {
       setFoundBoxes([]);
@@ -59,7 +62,13 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
       try {
         const page = await pdfDoc.getPage(pageNumber);
         const viewport = page.getViewport({ scale: 1 });
-        const textContent = await page.getTextContent();
+
+        // Get both annotations and text content in parallel
+        const [annotations, textContent] = await Promise.all([
+          page.getAnnotations(),
+          page.getTextContent(),
+        ]);
+
         if (cancelled) return;
 
         const boxes: FoundBox[] = [];
@@ -69,16 +78,34 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
           const searchVal = field?.value?.toString().trim();
           if (!searchVal || searchVal.length < 2) continue;
 
+          let found = false;
+
+          // 1. Try annotation widgets first (fillable PDF form fields)
+          for (const ann of annotations) {
+            const annVal = ann.fieldValue?.toString().trim();
+            if (annVal && annVal === searchVal) {
+              const [x1, y1, x2, y2] = ann.rect as number[];
+              boxes.push({
+                x: x1 / viewport.width,
+                y: (viewport.height - y2) / viewport.height,
+                w: (x2 - x1) / viewport.width,
+                h: (y2 - y1) / viewport.height,
+              });
+              found = true;
+              break;
+            }
+          }
+
+          if (found) continue;
+
+          // 2. Fall back to text content (scanned / non-fillable PDFs)
           for (const item of textContent.items as any[]) {
             const str = item.str?.trim() ?? '';
-            if (!str) continue;
-
+            if (!str || str.length < 2) continue;
             if (str.includes(searchVal) || (searchVal.length > 4 && searchVal.includes(str))) {
               const [, , , , x, y] = item.transform as number[];
-              const w = item.width as number || 40;
+              const w = (item.width as number) || 40;
               const h = Math.abs(item.height as number) || 10;
-
-              // PDF origin is bottom-left, CSS origin is top-left — flip Y
               boxes.push({
                 x: x / viewport.width,
                 y: 1 - (y + h) / viewport.height,
@@ -92,18 +119,13 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
 
         setFoundBoxes(boxes);
       } catch (e) {
-        console.error('[PdfPanel] Text search error:', e);
+        console.error('[PdfPanel] Highlight search error:', e);
       }
     };
 
     findBoxes();
     return () => { cancelled = true; };
-  }, [highlightRefs, pdfDoc, pageNumber, extractionData]);
-
-  // Clear boxes when refs are cleared
-  useEffect(() => {
-    if (highlightRefs.length === 0) setFoundBoxes([]);
-  }, [highlightRefs]);
+  }, [highlightKey, pdfDoc, pageNumber, extractionData]);
 
   return (
     <section className="w-[44%] flex flex-col border-r border-gray-300 bg-gray-100">
@@ -149,28 +171,32 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
       {/* PDF Viewer */}
       <div className="flex-1 overflow-auto p-5">
         {pdfUrl ? (
-          <div className="mx-auto inline-block">
+          <div className="mx-auto w-fit">
             <Document
               file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               onLoadError={(err) => console.error('[PdfPanel] Load error:', err)}
-              error={<div className="p-4 text-red-500 text-sm">Failed to load PDF. Check browser console for details.</div>}
+              error={<div className="p-4 text-red-500 text-sm">Failed to load PDF.</div>}
               className="border border-gray-400 shadow-lg bg-white"
             >
-              {/* relative wrapper so overlays align with the page canvas */}
-              <div className="relative">
+              {/* Explicit size so overlay percentages map exactly onto the page canvas */}
+              <div
+                className="relative"
+                style={pageSize ? {
+                  width: pageSize.width * scale,
+                  height: pageSize.height * scale,
+                } : undefined}
+              >
                 <Page
                   key={pageNumber}
                   pageNumber={pageNumber}
                   scale={scale}
                   renderTextLayer={true}
                   renderAnnotationLayer={false}
-                  onLoadSuccess={(page) => {
-                    setPageSize({ width: page.originalWidth, height: page.originalHeight });
-                  }}
+                  onLoadSuccess={(p) => setPageSize({ width: p.originalWidth, height: p.originalHeight })}
                 />
 
-                {/* Highlight overlays — percentage-based over the page area */}
+                {/* Amber highlight overlays */}
                 {pageSize && foundBoxes.map((box, idx) => (
                   <div
                     key={idx}
@@ -178,14 +204,14 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
                       position: 'absolute',
                       left: `${box.x * 100}%`,
                       top: `${box.y * 100}%`,
-                      width: `${Math.max(box.w * 100, 4)}%`,
-                      height: `${Math.max(box.h * 100, 1.2)}%`,
+                      width: `${Math.max(box.w * 100, 3)}%`,
+                      height: `${Math.max(box.h * 100, 1)}%`,
                       border: '2px solid #f59e0b',
-                      backgroundColor: 'rgba(245, 158, 11, 0.18)',
+                      backgroundColor: 'rgba(245, 158, 11, 0.2)',
                       pointerEvents: 'none',
-                      zIndex: 10,
+                      zIndex: 20,
                       borderRadius: '3px',
-                      boxShadow: '0 0 0 1px rgba(245,158,11,0.4)',
+                      boxShadow: '0 0 6px rgba(245,158,11,0.5)',
                     }}
                   />
                 ))}

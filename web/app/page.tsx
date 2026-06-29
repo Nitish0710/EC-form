@@ -32,6 +32,7 @@ export default function Home() {
   const [outputVersion, setOutputVersion] = useState(1);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [highlightRefs, setHighlightRefs] = useState<string[]>([]);
+  const [highlightKey, setHighlightKey] = useState(0);
   
   // Loading states
   const [isUploading, setIsUploading] = useState(false);
@@ -246,13 +247,17 @@ export default function Home() {
           pdfUrl={pdfUrl}
           extractionData={extractionData}
           highlightRefs={highlightRefs}
+          highlightKey={highlightKey}
         />
         <ResultsPanel
           checks={checks}
           outputVersion={outputVersion}
           downloadUrl={downloadUrl}
           onFeedback={handleFeedback}
-          onHighlight={setHighlightRefs}
+          onHighlight={(refs) => {
+            setHighlightRefs(refs);
+            setHighlightKey(k => k + 1);
+          }}
         />
       </div>
 
