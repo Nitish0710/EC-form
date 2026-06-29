@@ -1,17 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// pdfjs.version comes from react-pdf's internal pdfjs-dist — CDN URL ensures the versions match
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-interface BBox {
-  page: number;
-  x: number;
-  y: number;
+interface FoundBox {
+  x: number; // normalized 0-1 from left
+  y: number; // normalized 0-1 from top
   w: number;
   h: number;
 }
@@ -26,15 +24,17 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
-  const [pageDimensions, setPageDimensions] = useState<Map<number, { width: number; height: number }>>(new Map());
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const [pdfDoc, setPdfDoc] = useState<any>(null);
+  const [foundBoxes, setFoundBoxes] = useState<FoundBox[]>([]);
+  const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
 
-  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
-    setNumPages(numPages);
+  function onDocumentLoadSuccess(pdf: any) {
+    setNumPages(pdf.numPages);
     setPageNumber(1);
+    setPdfDoc(pdf);
   }
 
-  // Jump to the page of the first highlighted field when refs change
+  // Jump to relevant page when highlight refs change
   useEffect(() => {
     if (highlightRefs.length === 0 || !extractionData?.fields) return;
     for (const ref of highlightRefs) {
@@ -43,41 +43,67 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
         setPageNumber(field.page);
         return;
       }
-      if (field?.bbox?.page && field.bbox.page >= 1) {
-        setPageNumber(field.bbox.page);
-        return;
-      }
     }
   }, [highlightRefs, extractionData]);
 
-  const highlightBoxes: BBox[] = [];
-  if (extractionData && highlightRefs.length > 0) {
-    highlightRefs.forEach(ref => {
-      const field = extractionData.fields?.[ref];
-      if (field?.bbox) {
-        highlightBoxes.push(field.bbox);
+  // Search text content for field values and compute overlay boxes
+  useEffect(() => {
+    if (!pdfDoc || highlightRefs.length === 0 || !extractionData?.fields) {
+      setFoundBoxes([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const findBoxes = async () => {
+      try {
+        const page = await pdfDoc.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        const textContent = await page.getTextContent();
+        if (cancelled) return;
+
+        const boxes: FoundBox[] = [];
+
+        for (const ref of highlightRefs) {
+          const field = extractionData.fields[ref];
+          const searchVal = field?.value?.toString().trim();
+          if (!searchVal || searchVal.length < 2) continue;
+
+          for (const item of textContent.items as any[]) {
+            const str = item.str?.trim() ?? '';
+            if (!str) continue;
+
+            if (str.includes(searchVal) || (searchVal.length > 4 && searchVal.includes(str))) {
+              const [, , , , x, y] = item.transform as number[];
+              const w = item.width as number || 40;
+              const h = Math.abs(item.height as number) || 10;
+
+              // PDF origin is bottom-left, CSS origin is top-left — flip Y
+              boxes.push({
+                x: x / viewport.width,
+                y: 1 - (y + h) / viewport.height,
+                w: w / viewport.width,
+                h: h / viewport.height,
+              });
+              break;
+            }
+          }
+        }
+
+        setFoundBoxes(boxes);
+      } catch (e) {
+        console.error('[PdfPanel] Text search error:', e);
       }
-    });
-  }
-
-  const getHighlightStyle = (bbox: BBox, currentPage: number): React.CSSProperties | null => {
-    if (bbox.page !== currentPage) return null;
-    
-    const pageDim = pageDimensions.get(currentPage);
-    if (!pageDim) return null;
-
-    return {
-      position: 'absolute',
-      left: `${bbox.x * 100}%`,
-      top: `${bbox.y * 100}%`,
-      width: `${bbox.w * 100}%`,
-      height: `${bbox.h * 100}%`,
-      border: '2px solid #f59e0b',
-      backgroundColor: 'rgba(245, 158, 11, 0.1)',
-      pointerEvents: 'none',
-      zIndex: 10,
     };
-  };
+
+    findBoxes();
+    return () => { cancelled = true; };
+  }, [highlightRefs, pdfDoc, pageNumber, extractionData]);
+
+  // Clear boxes when refs are cleared
+  useEffect(() => {
+    if (highlightRefs.length === 0) setFoundBoxes([]);
+  }, [highlightRefs]);
 
   return (
     <section className="w-[44%] flex flex-col border-r border-gray-300 bg-gray-100">
@@ -123,7 +149,7 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
       {/* PDF Viewer */}
       <div className="flex-1 overflow-auto p-5">
         {pdfUrl ? (
-          <div className="relative mx-auto" ref={canvasRef}>
+          <div className="mx-auto inline-block">
             <Document
               file={pdfUrl}
               onLoadSuccess={onDocumentLoadSuccess}
@@ -131,32 +157,40 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
               error={<div className="p-4 text-red-500 text-sm">Failed to load PDF. Check browser console for details.</div>}
               className="border border-gray-400 shadow-lg bg-white"
             >
-              <Page
-                key={pageNumber}
-                pageNumber={pageNumber}
-                scale={scale}
-                renderTextLayer={true}
-                renderAnnotationLayer={false}
-                onLoadSuccess={(page) => {
-                  setPageDimensions(prev => {
-                    const updated = new Map(prev);
-                    updated.set(pageNumber, {
-                      width: page.originalWidth,
-                      height: page.originalHeight,
-                    });
-                    return updated;
-                  });
-                }}
-              />
-            </Document>
+              {/* relative wrapper so overlays align with the page canvas */}
+              <div className="relative">
+                <Page
+                  key={pageNumber}
+                  pageNumber={pageNumber}
+                  scale={scale}
+                  renderTextLayer={true}
+                  renderAnnotationLayer={false}
+                  onLoadSuccess={(page) => {
+                    setPageSize({ width: page.originalWidth, height: page.originalHeight });
+                  }}
+                />
 
-            {/* Highlight overlays */}
-            {highlightBoxes.map((bbox, idx) => {
-              const style = getHighlightStyle(bbox, pageNumber);
-              return style ? (
-                <div key={idx} style={style} />
-              ) : null;
-            })}
+                {/* Highlight overlays — percentage-based over the page area */}
+                {pageSize && foundBoxes.map((box, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      position: 'absolute',
+                      left: `${box.x * 100}%`,
+                      top: `${box.y * 100}%`,
+                      width: `${Math.max(box.w * 100, 4)}%`,
+                      height: `${Math.max(box.h * 100, 1.2)}%`,
+                      border: '2px solid #f59e0b',
+                      backgroundColor: 'rgba(245, 158, 11, 0.18)',
+                      pointerEvents: 'none',
+                      zIndex: 10,
+                      borderRadius: '3px',
+                      boxShadow: '0 0 0 1px rgba(245,158,11,0.4)',
+                    }}
+                  />
+                ))}
+              </div>
+            </Document>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">
