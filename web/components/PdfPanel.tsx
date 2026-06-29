@@ -132,6 +132,7 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
               className="border border-gray-400 shadow-lg bg-white"
             >
               <Page
+                key={pageNumber}
                 pageNumber={pageNumber}
                 scale={scale}
                 renderTextLayer={true}
