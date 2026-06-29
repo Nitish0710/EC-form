@@ -309,10 +309,13 @@ export async function POST(request: NextRequest) {
 
     // Step 2: Extract fields via Claude
     console.log(`[Validate] Calling Claude for extraction...`);
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const client = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      ...(process.env.ANTHROPIC_BASE_URL ? { baseURL: process.env.ANTHROPIC_BASE_URL } : {}),
+    });
 
     const extractionMessage = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [{
         role: 'user',
