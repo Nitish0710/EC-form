@@ -27,9 +27,10 @@ interface ResultsPanelProps {
   outputVersion: number;
   downloadUrl: string | null;
   onFeedback: (checkId: string, action: 'confirmed' | 'override', reasonCode?: string, comment?: string) => void;
+  onHighlight: (refs: string[]) => void;
 }
 
-export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFeedback }: ResultsPanelProps) {
+export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFeedback, onHighlight }: ResultsPanelProps) {
   const [activeTab, setActiveTab] = useState<'all' | 'flag' | 'pass' | 'na'>('all');
 
   const flagChecks = checks.filter(c => c.status === 'FLAG' && !c.effective_status);
@@ -116,6 +117,7 @@ export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFee
                 key={check.check_id}
                 check={check}
                 onFeedback={onFeedback}
+                onHighlight={onHighlight}
               />
             ))}
           </div>

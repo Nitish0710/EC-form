@@ -336,8 +336,8 @@ export async function POST(request: NextRequest) {
   "form_version": "FF-206-FY-22-152",
   "extraction_confidence": 0.94,
   "fields": {
-    "A1": { "value": "", "confidence": 0.0 },
-    "A2_street": { "value": "", "confidence": 0.0 },
+    "A1": { "value": "", "confidence": 0.0, "page": 1 },
+    "A2_street": { "value": "", "confidence": 0.0, "page": 1 },
     "A2_city": { "value": "", "confidence": 0.0 },
     "A2_state": { "value": "", "confidence": 0.0 },
     "A2_zip": { "value": "", "confidence": 0.0 },
@@ -382,6 +382,7 @@ export async function POST(request: NextRequest) {
 Rules:
 - For fields you can read clearly, set confidence 0.85-1.0
 - For fields you can read but are uncertain, set confidence 0.5-0.84
+- Set "page" to the PDF page number (1-based) where the field appears
 - For blank/empty fields, use empty string and confidence 0.0
 - For elevation values (C2a, C2b, etc.) extract just the numeric value (e.g. "11.20")
 - For B9 (BFE), extract just the numeric value

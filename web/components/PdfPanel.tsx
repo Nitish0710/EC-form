@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -33,6 +33,22 @@ export default function PdfPanel({ pdfUrl, extractionData, highlightRefs }: PdfP
     setNumPages(numPages);
     setPageNumber(1);
   }
+
+  // Jump to the page of the first highlighted field when refs change
+  useEffect(() => {
+    if (highlightRefs.length === 0 || !extractionData?.fields) return;
+    for (const ref of highlightRefs) {
+      const field = extractionData.fields[ref];
+      if (field?.page && field.page >= 1) {
+        setPageNumber(field.page);
+        return;
+      }
+      if (field?.bbox?.page && field.bbox.page >= 1) {
+        setPageNumber(field.bbox.page);
+        return;
+      }
+    }
+  }, [highlightRefs, extractionData]);
 
   const highlightBoxes: BBox[] = [];
   if (extractionData && highlightRefs.length > 0) {

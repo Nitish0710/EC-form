@@ -252,6 +252,7 @@ export default function Home() {
           outputVersion={outputVersion}
           downloadUrl={downloadUrl}
           onFeedback={handleFeedback}
+          onHighlight={setHighlightRefs}
         />
       </div>
 

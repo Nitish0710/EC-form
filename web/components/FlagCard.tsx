@@ -22,9 +22,10 @@ interface Check {
 interface FlagCardProps {
   check: Check;
   onFeedback: (checkId: string, action: 'confirmed' | 'override', reasonCode?: string, comment?: string) => void;
+  onHighlight?: (refs: string[]) => void;
 }
 
-export default function FlagCard({ check, onFeedback }: FlagCardProps) {
+export default function FlagCard({ check, onFeedback, onHighlight }: FlagCardProps) {
   const [showOverride, setShowOverride] = useState(false);
   const [reasonCode, setReasonCode] = useState<string>('');
   const [comment, setComment] = useState('');
@@ -53,6 +54,7 @@ export default function FlagCard({ check, onFeedback }: FlagCardProps) {
 
   return (
     <div
+      onClick={() => onHighlight?.(check.highlight_refs)}
       className={`bg-white border ${
         isConfirmed
           ? 'border-green-300 border-l-4 border-l-green-500 opacity-80'
