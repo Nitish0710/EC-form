@@ -5,11 +5,8 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Must use react-pdf's own bundled pdfjs-dist worker (not the top-level one — versions must match)
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'react-pdf/node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+// pdfjs.version comes from react-pdf's internal pdfjs-dist — CDN URL ensures the versions match
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface BBox {
   page: number;
