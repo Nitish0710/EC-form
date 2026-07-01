@@ -273,27 +273,33 @@ export default function Dashboard({ onNewValidation, onOpenEntry }: DashboardPro
                             Open Results
                           </button>
 
-                          <div className="w-px h-4 bg-gray-200 mx-1" />
+                          <div className="flex-1" />
 
-                          <span className="text-[9px] font-bold tracking-widest uppercase text-gray-400">Download</span>
-                          {entry.versions.map(v => (
+                          {entry.versions.length > 1 && (
                             <button
-                              key={v.version}
-                              onClick={() => downloadVersion(v)}
-                              title={`v${v.version} · ${v.summary.total} checks · ${v.summary.overrides} override(s)`}
-                              className="flex items-center gap-1 text-[10px] font-mono border border-gray-300 rounded px-2 py-1 bg-white hover:bg-teal-50 hover:border-teal-400 hover:text-teal-700 transition"
+                              onClick={() => downloadVersion(entry.versions[0])}
+                              title="Download original validation (no overrides)"
+                              className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2 transition"
                             >
-                              <span className="font-bold">v{v.version}</span>
-                              <span className="text-gray-400">
-                                {v.version === 1 ? 'original' : `${v.summary.overrides} override${v.summary.overrides !== 1 ? 's' : ''}`}
-                              </span>
-                              <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="ml-0.5">
+                              v1 original
+                            </button>
+                          )}
+                          {latestV && (
+                            <button
+                              onClick={() => downloadVersion(latestV)}
+                              title={`Download v${latestV.version} — ${latestV.summary.total} checks · ${latestV.summary.overrides} override(s)`}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded transition"
+                            >
+                              <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                                 <path d="M6 1v7M3 6l3 3 3-3M2 11h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                               </svg>
+                              Download JSON
+                              {latestV.version > 1 && (
+                                <span className="opacity-80 font-normal">
+                                  — {latestV.summary.overrides} override{latestV.summary.overrides !== 1 ? 's' : ''}
+                                </span>
+                              )}
                             </button>
-                          ))}
-                          {latestV && entry.versions.length > 1 && (
-                            <span className="text-[9px] font-mono text-gray-400 ml-0.5">← latest</span>
                           )}
                         </div>
                       </div>

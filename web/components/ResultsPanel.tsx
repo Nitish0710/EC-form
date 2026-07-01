@@ -12,6 +12,12 @@ interface ResultsPanelProps {
   onHighlight: (refs: string[]) => void;
 }
 
+// COMP_A1 → "A1", COMP_A5_datum → "A5", COMP_B1a → "B1a", COMP_A8a → "A8a"
+function fieldLabel(checkId: string): string {
+  if (!checkId.startsWith('COMP_')) return checkId;
+  return checkId.replace(/^COMP_/, '').split('_')[0];
+}
+
 export default function ResultsPanel({ checks, versions, onFeedback, onDownload, onHighlight }: ResultsPanelProps) {
   const [activeTab, setActiveTab] = useState<'all' | 'flag' | 'pass' | 'na'>('all');
 
@@ -39,27 +45,32 @@ export default function ResultsPanel({ checks, versions, onFeedback, onDownload,
           )}
         </div>
 
-        {/* Version history row */}
+        {/* Download row */}
         {versions.length > 0 && (
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="text-[9px] font-bold tracking-widest uppercase text-gray-400">Download</span>
-            {versions.map(v => (
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <button
+              onClick={() => onDownload(latestVersion)}
+              title={`Download v${latestVersion.version} — ${latestVersion.summary.total} checks · generated ${new Date(latestVersion.generated_at).toLocaleTimeString()}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded transition"
+            >
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                <path d="M6 1v7M3 6l3 3 3-3M2 11h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Download JSON
+              {latestVersion.version > 1 && (
+                <span className="opacity-80 font-normal">
+                  — {latestVersion.summary.overrides} override{latestVersion.summary.overrides !== 1 ? 's' : ''}
+                </span>
+              )}
+            </button>
+            {versions.length > 1 && versions.slice(0, -1).map(v => (
               <button
                 key={v.version}
                 onClick={() => onDownload(v)}
-                title={`v${v.version} · ${v.summary.total} checks · ${v.summary.overrides} override(s) · generated ${new Date(v.generated_at).toLocaleTimeString()}`}
-                className="flex items-center gap-1 text-[10px] font-mono border border-gray-300 rounded px-2 py-0.5 bg-white hover:bg-teal-50 hover:border-teal-400 hover:text-teal-700 transition"
+                title={`v${v.version} — original · ${v.summary.total} checks`}
+                className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2 transition"
               >
-                <span className="font-bold">v{v.version}</span>
-                <span className="text-gray-400">
-                  {v.version === 1
-                    ? 'original'
-                    : `${v.summary.overrides} override${v.summary.overrides !== 1 ? 's' : ''}`}
-                </span>
-                {/* download icon */}
-                <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="ml-0.5">
-                  <path d="M6 1v7M3 6l3 3 3-3M2 11h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                v{v.version} original
               </button>
             ))}
           </div>
@@ -120,7 +131,7 @@ export default function ResultsPanel({ checks, versions, onFeedback, onDownload,
             </div>
             {flagChecks.map(check => (
               <FlagCard
-                key={check.check_id}
+                key={fieldLabel(check.check_id)}
                 check={check}
                 onFeedback={onFeedback}
                 onHighlight={onHighlight}
@@ -137,12 +148,12 @@ export default function ResultsPanel({ checks, versions, onFeedback, onDownload,
             </div>
             {passChecks.map(check => (
               <div
-                key={check.check_id}
+                key={fieldLabel(check.check_id)}
                 className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-200 cursor-pointer"
                 onClick={() => onHighlight(check.highlight_refs || [])}
               >
                 <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
-                  {check.check_id}
+                  {fieldLabel(check.check_id)}
                 </div>
                 <div className="flex-1 text-xs text-gray-700">
                   {check.check_name}
@@ -164,12 +175,12 @@ export default function ResultsPanel({ checks, versions, onFeedback, onDownload,
             </div>
             {naChecks.map(check => (
               <div
-                key={check.check_id}
+                key={fieldLabel(check.check_id)}
                 className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-200 cursor-pointer"
                 onClick={() => onHighlight(check.highlight_refs || [])}
               >
                 <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
-                  {check.check_id}
+                  {fieldLabel(check.check_id)}
                 </div>
                 <div className="flex-1 text-xs text-gray-700">
                   {check.check_name}
@@ -190,7 +201,7 @@ export default function ResultsPanel({ checks, versions, onFeedback, onDownload,
                   Flagged
                 </div>
                 {flagChecks.map(check => (
-                  <FlagCard key={check.check_id} check={check} onFeedback={onFeedback} onHighlight={onHighlight} />
+                  <FlagCard key={fieldLabel(check.check_id)} check={check} onFeedback={onFeedback} onHighlight={onHighlight} />
                 ))}
               </div>
             )}
@@ -201,12 +212,12 @@ export default function ResultsPanel({ checks, versions, onFeedback, onDownload,
                 </div>
                 {passChecks.map(check => (
                   <div
-                    key={check.check_id}
+                    key={fieldLabel(check.check_id)}
                     className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-200 cursor-pointer"
                     onClick={() => onHighlight(check.highlight_refs || [])}
                   >
                     <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
-                      {check.check_id}
+                      {fieldLabel(check.check_id)}
                     </div>
                     <div className="flex-1 text-xs text-gray-700">{check.check_name}</div>
                     <div className="text-green-600 text-sm font-bold">✓</div>
@@ -223,9 +234,9 @@ export default function ResultsPanel({ checks, versions, onFeedback, onDownload,
                   Not applicable
                 </div>
                 {naChecks.map(check => (
-                  <div key={check.check_id} className="flex items-center gap-3 px-3 py-2 rounded mb-1 opacity-60">
+                  <div key={fieldLabel(check.check_id)} className="flex items-center gap-3 px-3 py-2 rounded mb-1 opacity-60">
                     <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
-                      {check.check_id}
+                      {fieldLabel(check.check_id)}
                     </div>
                     <div className="flex-1 text-xs text-gray-500">{check.check_name}</div>
                     <div className="font-mono text-[10px] text-gray-400">—</div>

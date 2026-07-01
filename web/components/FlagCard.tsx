@@ -66,7 +66,7 @@ export default function FlagCard({ check, onFeedback, onHighlight }: FlagCardPro
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="font-mono text-xs font-bold bg-gray-100 border border-gray-300 px-2 py-1 rounded min-w-[50px] text-center">
-          {check.check_id}
+          {check.check_id.startsWith('COMP_') ? check.check_id.replace(/^COMP_/, '').split('_')[0] : check.check_id}
         </div>
         <div className="flex-1 text-sm font-semibold text-gray-900 leading-tight">
           {check.check_name}

@@ -14,9 +14,13 @@ const BFE_REQUIRED_ZONES = new Set([
   'A21','A22','A23','A24','A25','A26','A27','A28','A29','A30',
 ]);
 const V_ZONES = new Set(['V', 'VE']);
-const VALID_DIAGRAMS = new Set(['1', '1A', '1B', '2', '3', '4', '5', '6', '7', '8', '9']);
-const A8_REQUIRED_DIAGRAMS = new Set(['1B', '2', '3', '4', '5', '9']);
-const A9_REQUIRED_DIAGRAMS = new Set(['1A', '9']);
+const VALID_DIAGRAMS = new Set(['1A', '1B', '2A', '2B', '3', '4', '5', '6', '7', '8', '9']);
+// Plausibility cross-checks only — A8/A9 requirement is gated by A8.a/A9.a itself (see runValidation).
+// Diagrams whose description indicates a crawlspace/enclosure below the elevated floor (pages 17–19).
+// Diagram 5 is explicitly "no obstructions below the elevated floor" and is excluded.
+const A8_ENCLOSURE_DIAGRAMS = new Set(['2A', '2B', '4', '6', '7', '8', '9']);
+// Diagrams whose description explicitly says "with or without attached garage" (pages 17–19).
+const A9_GARAGE_DIAGRAMS = new Set(['1A', '1B', '2A', '2B', '3', '4', '8', '9']);
 
 interface FieldValue {
   value: string;
@@ -70,7 +74,6 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
   const results: CheckResult[] = [];
   const f = (k: string) => field(extraction, k);
   const n = (k: string) => num(extraction, k);
-  const diagram = f('A7').trim();
 
   // P1: Extraction confidence gate
   const conf = extraction.extraction_confidence;
@@ -92,7 +95,7 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     'High', []
   ));
 
-  // --- Completeness checks for always-required fields ---
+  // --- Completeness checks — run first, track failures for cascade ---
   const required: [string, string, string][] = [
     ['A1', 'Building Owner Name', 'A1'],
     ['A3', 'Parcel / Legal Description', 'A3'],
@@ -113,12 +116,15 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     ['D1_name', 'Certifier Name', 'D1'],
     ['D2', 'Certification Date', 'D2'],
   ];
+  const failedFields = new Set<string>();
 
   for (const [fieldKey, fieldName, ref] of required) {
     const val = f(fieldKey);
+    const passed = !!val;
+    if (!passed) failedFields.add(fieldKey);
     results.push(check(
       `COMP_${fieldKey}`, `${fieldName} — Required`,
-      val ? 'PASS' : 'FLAG',
+      passed ? 'PASS' : 'FLAG',
       val || '(blank)',
       'Required field must be present',
       'High', [ref]
@@ -133,7 +139,7 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     missingAddr.length === 0 ? 'PASS' : 'FLAG',
     missingAddr.length === 0
       ? `${f('A2_street')}, ${f('A2_city')}, ${f('A2_state')} ${f('A2_zip')}`
-      : `Missing: ${missingAddr.map(k => k.replace('A2_','')).join(', ')}`,
+      : `Missing: ${missingAddr.map(k => k.replace('A2_', '')).join(', ')}`,
     'All address components required (street, city, state, ZIP)',
     'High', ['A2']
   ));
@@ -153,9 +159,13 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     !latLonOk && lat ? `Lat decimals: ${latDecimals}, Lon decimals: ${lonDecimals}` : undefined
   ));
 
-  // A4: Valid building use
-  const a4Val = f('A4').toLowerCase();
-  if (a4Val) {
+  // A4: Valid building use — auto-flag if COMP_A4 failed
+  if (failedFields.has('A4')) {
+    results.push(check('A4', 'Building Use — Valid Value', 'FLAG', '(blank)',
+      'Must be: Residential, Non-Residential, Addition, Accessory, or Other',
+      'High', ['A4'], 'Field blank — COMP_A4 failed'));
+  } else {
+    const a4Val = f('A4').toLowerCase();
     const validUses = ['residential', 'non-residential', 'addition', 'accessory', 'other'];
     results.push(check(
       'A4', 'Building Use — Valid Value',
@@ -166,15 +176,20 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     ));
   }
 
-  // A5_datum: Horizontal datum (NAD 1927 or NAD 1983)
-  const datumNAD = f('A5_datum');
-  results.push(check(
-    'A5_datum', 'Horizontal Datum (A5)',
-    !datumNAD ? 'FLAG' : datumNAD.toUpperCase().includes('NAD') ? 'PASS' : 'FLAG',
-    datumNAD || '(blank)',
-    'Must be NAD 1927 or NAD 1983',
-    'High', ['A5']
-  ));
+  // A5_datum: Horizontal datum — auto-flag if COMP_A5_datum failed
+  if (failedFields.has('A5_datum')) {
+    results.push(check('A5_datum', 'Horizontal Datum (A5)', 'FLAG', '(blank)',
+      'Must be NAD 1927, NAD 1983, or WGS 84', 'High', ['A5'], 'Field blank — COMP_A5_datum failed'));
+  } else {
+    const datumNAD = f('A5_datum').toUpperCase();
+    results.push(check(
+      'A5_datum', 'Horizontal Datum (A5)',
+      datumNAD.includes('NAD') || datumNAD.includes('WGS') ? 'PASS' : 'FLAG',
+      f('A5_datum'),
+      'Must be NAD 1927, NAD 1983, or WGS 84',
+      'High', ['A5']
+    ));
+  }
 
   // A6: Photographs at end of document
   const photosVal = f('A6_photos').toLowerCase();
@@ -187,157 +202,229 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     !photosVal ? 'Photos may be present but could not be detected from text extraction' : undefined
   ));
 
-  // A7: Valid diagram number
-  if (diagram) {
+  // A7 — Building Diagram Number (valid-code check only; no longer gates A8/A9)
+  const diagram = failedFields.has('A7') ? '' : f('A7').trim();
+
+  if (failedFields.has('A7')) {
+    results.push(check('A7', 'Building Diagram — Valid Number', 'FLAG', '(blank)',
+      'Must be one of: 1A, 1B, 2A, 2B, 3, 4, 5, 6, 7, 8, 9 (see form pages 17–19)',
+      'High', ['A7'], 'Field blank — COMP_A7 failed'));
+  } else {
     results.push(check(
       'A7', 'Building Diagram — Valid Number',
       VALID_DIAGRAMS.has(diagram) ? 'PASS' : 'FLAG',
       diagram,
-      'Must be one of: 1, 1A, 1B, 2, 3, 4, 5, 6, 7, 8, 9 (see form pages 17–19)',
+      'Must be one of: 1A, 1B, 2A, 2B, 3, 4, 5, 6, 7, 8, 9 (see form pages 17–19)',
       'High', ['A7']
     ));
   }
 
-  // A8: Crawl space / enclosure (conditional on diagram)
-  if (diagram && A8_REQUIRED_DIAGRAMS.has(diagram)) {
-    const a8a = f('A8a');
-    const a8b = f('A8b');
-    const a8c = f('A8c');
-    const a8d = f('A8d');
-    results.push(check('COMP_A8a', 'Crawl Space Area (A8.a) — Required', a8a ? 'PASS' : 'FLAG',
-      a8a || '(blank)', `sq. ft. required for Diagram ${diagram}`, 'High', ['A8']));
-    results.push(check('COMP_A8b', 'Flood Openings Count (A8.b) — Required', a8b ? 'PASS' : 'FLAG',
-      a8b || '(blank)', `No. of permanent flood openings required for Diagram ${diagram}`, 'High', ['A8']));
-    results.push(check('COMP_A8d', 'Engineered Openings (A8.d) — Required', a8d ? 'PASS' : 'FLAG',
-      a8d || '(blank)', `Yes/No required for Diagram ${diagram}`, 'High', ['A8']));
-    const sqft = parseFloat(a8a);
-    const sqin = parseFloat(a8c);
-    const engineered = a8d.toLowerCase() === 'yes';
-    if (!isNaN(sqft) && !isNaN(sqin) && !engineered) {
+  // A8 — Crawl Space / Enclosure. Gated by A8.a itself, per instructions:
+  // "If there is no crawlspace or enclosure, enter 'N/A' for Items A8.a-f."
+  // Diagram number is NOT the gate (2A/2B/4 can also have a sub-grade crawlspace per
+  // the A8.a instruction) — it's used below only as a plausibility cross-check.
+  {
+    const a8aRaw = f('A8a');
+    const a8aIsNA = /^n\/?a$/i.test(a8aRaw.trim());
+    results.push(check('COMP_A8a', 'Crawl Space / Enclosure Area (A8.a) — Required',
+      a8aRaw ? 'PASS' : 'FLAG',
+      a8aRaw || '(blank)',
+      'Must be a square footage value, or "N/A" if no crawlspace/enclosure exists',
+      'High', ['A8']));
+
+    if (!a8aRaw) {
+      results.push(check('A8', 'Crawl Space / Enclosure (A8)', 'UNVERIFIABLE',
+        'A8.a was not answered — cannot determine whether this section applies',
+        'A8.a must be a square footage value or "N/A"', 'High', ['A8']));
+    } else if (a8aIsNA) {
+      results.push(check('A8', 'Crawl Space / Enclosure (A8)', 'N/A',
+        'No crawlspace or enclosure (A8.a = N/A)',
+        'Not applicable — building has no crawlspace or enclosure', 'High', ['A8']));
+    } else {
+      const a8b = f('A8b');
+      const a8c = f('A8c');
+      const a8d = f('A8d');
+      results.push(check('COMP_A8b', 'Flood Openings Count (A8.b) — Required', a8b ? 'PASS' : 'FLAG',
+        a8b || '(blank)', `Required — crawlspace/enclosure present (A8.a = ${a8aRaw} sq. ft.)`, 'High', ['A8']));
+      results.push(check('COMP_A8d', 'Engineered Openings (A8.d) — Required', a8d ? 'PASS' : 'FLAG',
+        a8d || '(blank)', 'Yes/No required — crawlspace/enclosure present', 'High', ['A8']));
+      const sqft = parseFloat(a8aRaw);
+      const sqin = parseFloat(a8c);
+      const engineered = a8d.toLowerCase() === 'yes';
+      if (!isNaN(sqft) && !isNaN(sqin) && !engineered) {
+        results.push(check(
+          'A8_ratio', 'Flood Opening Ratio (A8) — NFIP Standard',
+          sqin >= sqft ? 'PASS' : 'FLAG',
+          `${sqin} sq.in. opening area for ${sqft} sq.ft. enclosed area`,
+          '≥ 1 sq.in. per sq.ft. of enclosed area (non-engineered openings)',
+          'Medium', ['A8'],
+          sqin < sqft ? `Deficit: need ${sqft} sq.in., have ${sqin} sq.in.` : undefined
+        ));
+      }
+
+      if (diagram && VALID_DIAGRAMS.has(diagram) && !A8_ENCLOSURE_DIAGRAMS.has(diagram)) {
+        results.push(check(
+          'A8_diagram_consistency', 'Diagram vs. Crawlspace/Enclosure Consistency', 'FLAG',
+          `Diagram ${diagram} with A8.a = ${a8aRaw} sq. ft.`,
+          `Diagram ${diagram}'s description (pages 17–19) does not indicate a crawlspace/enclosure below the elevated floor`,
+          'Medium', ['A7', 'A8'],
+          'Diagram number and A8 entry appear inconsistent — verify against Building Diagrams pages 17–19'
+        ));
+      }
+    }
+  }
+
+  // A9 — Attached Garage. Gated by A9.a itself, per instructions:
+  // "If there is no attached garage, enter 'N/A' for items A9.a-f."
+  {
+    const a9aRaw = f('A9a');
+    const a9aIsNA = /^n\/?a$/i.test(a9aRaw.trim());
+    results.push(check('COMP_A9a', 'Attached Garage Area (A9.a) — Required',
+      a9aRaw ? 'PASS' : 'FLAG',
+      a9aRaw || '(blank)',
+      'Must be a square footage value, or "N/A" if no attached garage exists',
+      'High', ['A9']));
+
+    if (!a9aRaw) {
+      results.push(check('A9', 'Attached Garage (A9)', 'UNVERIFIABLE',
+        'A9.a was not answered — cannot determine whether this section applies',
+        'A9.a must be a square footage value or "N/A"', 'High', ['A9']));
+    } else if (a9aIsNA) {
+      results.push(check('A9', 'Attached Garage (A9)', 'N/A',
+        'No attached garage (A9.a = N/A)',
+        'Not applicable — building has no attached garage', 'High', ['A9']));
+    } else {
+      const a9b = f('A9b');
+      const a9c = f('A9c');
+      const a9d = f('A9d');
+      results.push(check('COMP_A9b', 'Garage Flood Openings Count (A9.b) — Required', a9b ? 'PASS' : 'FLAG',
+        a9b || '(blank)', `Required — attached garage present (A9.a = ${a9aRaw} sq. ft.)`, 'High', ['A9']));
+      results.push(check('COMP_A9d', 'Garage Engineered Openings (A9.d) — Required', a9d ? 'PASS' : 'FLAG',
+        a9d || '(blank)', 'Yes/No required — attached garage present', 'High', ['A9']));
+      const sqft9 = parseFloat(a9aRaw);
+      const sqin9 = parseFloat(a9c);
+      const engineered9 = a9d.toLowerCase() === 'yes';
+      if (!isNaN(sqft9) && !isNaN(sqin9) && !engineered9) {
+        results.push(check(
+          'A9_ratio', 'Garage Flood Opening Ratio (A9) — NFIP Standard',
+          sqin9 >= sqft9 ? 'PASS' : 'FLAG',
+          `${sqin9} sq.in. opening area for ${sqft9} sq.ft. garage`,
+          '≥ 1 sq.in. per sq.ft. of garage area (non-engineered openings)',
+          'Medium', ['A9'],
+          sqin9 < sqft9 ? `Deficit: need ${sqft9} sq.in., have ${sqin9} sq.in.` : undefined
+        ));
+      }
+
+      if (diagram && VALID_DIAGRAMS.has(diagram) && !A9_GARAGE_DIAGRAMS.has(diagram)) {
+        results.push(check(
+          'A9_diagram_consistency', 'Diagram vs. Attached Garage Consistency', 'FLAG',
+          `Diagram ${diagram} with A9.a = ${a9aRaw} sq. ft.`,
+          `Diagram ${diagram}'s description (pages 17–19) does not explicitly mention an attached garage`,
+          'Medium', ['A7', 'A9'],
+          'Diagram number and A9 entry appear inconsistent — verify against Building Diagrams pages 17–19'
+        ));
+      }
+    }
+  }
+
+  // B8 + B9 + B13 + C2c — auto-flag/unverifiable if COMP_B8 failed
+  if (failedFields.has('B8')) {
+    results.push(check('B8', 'Flood Zone Valid', 'FLAG', '(blank)',
+      'Must be FEMA-approved zone (A, AE, AH, AO, AR, A99, V, VE, A1-A30)',
+      'High', ['B8'], 'Field blank — COMP_B8 failed'));
+    results.push(check('B9', 'Base Flood Elevation (BFE)', 'UNVERIFIABLE',
+      'Cannot determine — B8 (Flood Zone) is blank',
+      'Zone required to determine if BFE is needed', 'High', ['B8', 'B9']));
+    results.push(check('B13', 'LiMWA Status', 'UNVERIFIABLE',
+      'Cannot determine — B8 (Flood Zone) is blank',
+      'Only required for V/VE zones', 'High', ['B8', 'B13']));
+    results.push(check('C2c', 'Bottom of Lowest Horizontal Structural Member (C2c)', 'UNVERIFIABLE',
+      'Cannot determine — B8 (Flood Zone) is blank',
+      'Only required for V/VE zone + seaward of LiMWA + Diagram 5 or 6', 'High', ['C2c', 'B8']));
+  } else {
+    const zone = f('B8').toUpperCase();
+    results.push(check(
+      'B8', 'Flood Zone Valid',
+      VALID_FLOOD_ZONES.has(zone) ? 'PASS' : 'FLAG',
+      zone,
+      'Must be FEMA-approved zone (A, AE, AH, AO, AR, A99, V, VE, A1-A30)',
+      'High', ['B8']
+    ));
+
+    const bfe = n('B9');
+    if (BFE_REQUIRED_ZONES.has(zone)) {
       results.push(check(
-        'A8_ratio', 'Flood Opening Ratio (A8) — NFIP Standard',
-        sqin >= sqft ? 'PASS' : 'FLAG',
-        `${sqin} sq.in. opening area for ${sqft} sq.ft. enclosed area`,
-        '≥ 1 sq.in. per sq.ft. of enclosed area (non-engineered openings)',
-        'Medium', ['A8'],
-        sqin < sqft ? `Deficit: need ${sqft} sq.in., have ${sqin} sq.in.` : undefined
+        'B9', 'Base Flood Elevation (BFE) Present',
+        bfe !== null ? 'PASS' : 'FLAG',
+        bfe !== null ? `${bfe} ft (${extraction.fields['B9']?.datum || ''})` : '(blank)',
+        `BFE required for zone ${zone}`,
+        'High', ['B9']
+      ));
+    } else {
+      results.push(check('B9', 'Base Flood Elevation (BFE)', 'N/A',
+        'Zone does not require BFE', `Zone: ${zone}`, 'High', ['B8']));
+    }
+
+    const limwa = f('B13');
+    if (V_ZONES.has(zone)) {
+      results.push(check(
+        'B13', 'LiMWA Status (V-zone requirement)',
+        limwa ? 'PASS' : 'FLAG',
+        limwa || '(blank)',
+        'Required for V/VE zones',
+        'High', ['B13', 'B8']
+      ));
+    } else {
+      results.push(check('B13', 'LiMWA Status', 'N/A',
+        `Zone ${zone} — LiMWA not applicable`, 'Only required for V/VE zones', 'High', ['B8']));
+    }
+
+    const isSeawardLiMWA = limwa?.toLowerCase() === 'yes';
+    const c2cRequired = V_ZONES.has(zone) && isSeawardLiMWA && (diagram === '5' || diagram === '6');
+    const c2c = f('C2c');
+    if (c2cRequired) {
+      results.push(check(
+        'C2c', 'Bottom of Lowest Horizontal Structural Member (C2c)',
+        c2c ? 'PASS' : 'FLAG',
+        c2c || '(blank)',
+        'Required: V/VE zone + seaward of LiMWA + Diagram 5 or 6',
+        'High', ['C2c', 'B8', 'B13', 'A7']
+      ));
+    } else {
+      results.push(check('C2c', 'Bottom of Lowest Horizontal Structural Member (C2c)', 'N/A',
+        `Conditions not met (Zone: ${zone}, LiMWA: ${limwa || 'N/A'}, Diagram: ${diagram || 'unknown'})`,
+        'Only required for V/VE zone + seaward of LiMWA + Diagram 5 or 6',
+        'High', ['C2c']
       ));
     }
-  } else if (diagram) {
-    results.push(check('A8', 'Crawl Space / Enclosure (A8)', 'N/A',
-      `Diagram ${diagram} — no crawl space or enclosure`,
-      'Only required for Diagrams 1B, 2, 3, 4, 5, 9', 'High', ['A7']));
   }
 
-  // A9: Attached garage (conditional on diagram)
-  if (diagram && A9_REQUIRED_DIAGRAMS.has(diagram)) {
-    const a9a = f('A9a');
-    const a9b = f('A9b');
-    const a9c = f('A9c');
-    const a9d = f('A9d');
-    results.push(check('COMP_A9a', 'Garage Area (A9.a) — Required', a9a ? 'PASS' : 'FLAG',
-      a9a || '(blank)', `sq. ft. required for Diagram ${diagram}`, 'High', ['A9']));
-    results.push(check('COMP_A9b', 'Garage Flood Openings Count (A9.b) — Required', a9b ? 'PASS' : 'FLAG',
-      a9b || '(blank)', `No. of permanent flood openings required for Diagram ${diagram}`, 'High', ['A9']));
-    results.push(check('COMP_A9d', 'Garage Engineered Openings (A9.d) — Required', a9d ? 'PASS' : 'FLAG',
-      a9d || '(blank)', `Yes/No required for Diagram ${diagram}`, 'High', ['A9']));
-    const sqft9 = parseFloat(a9a);
-    const sqin9 = parseFloat(a9c);
-    const engineered9 = a9d.toLowerCase() === 'yes';
-    if (!isNaN(sqft9) && !isNaN(sqin9) && !engineered9) {
+  // B10 + B11 — auto-flag if COMP_B10 failed; B11 requires datum10 so skip if blank
+  if (failedFields.has('B10')) {
+    results.push(check('B10', 'Elevation Datum Valid', 'FLAG', '(blank)',
+      'Must be NAVD 88, NGVD 29, or other approved datum',
+      'High', ['B10'], 'Field blank — COMP_B10 failed'));
+  } else {
+    const datum10 = f('B10');
+    const validDatums = new Set(['NAVD 88', 'NGVD 29', 'OTHER']);
+    results.push(check(
+      'B10', 'Elevation Datum Valid',
+      datum10 && (validDatums.has(datum10.toUpperCase()) || datum10.length > 3) ? 'PASS' : 'FLAG',
+      datum10 || '(blank)',
+      'Must be NAVD 88, NGVD 29, or other approved datum',
+      'High', ['B10']
+    ));
+
+    const datum11 = f('B11') || f('C2');
+    if (datum10 && datum11) {
       results.push(check(
-        'A9_ratio', 'Garage Flood Opening Ratio (A9) — NFIP Standard',
-        sqin9 >= sqft9 ? 'PASS' : 'FLAG',
-        `${sqin9} sq.in. opening area for ${sqft9} sq.ft. garage`,
-        '≥ 1 sq.in. per sq.ft. of garage area (non-engineered openings)',
-        'Medium', ['A9'],
-        sqin9 < sqft9 ? `Deficit: need ${sqft9} sq.in., have ${sqin9} sq.in.` : undefined
+        'B11', 'Datum Consistency (B10 vs C2)',
+        datum10.toUpperCase() === datum11.toUpperCase() ? 'PASS' : 'FLAG',
+        `B10: ${datum10} | C2: ${datum11}`,
+        'All elevation measurements must use same datum',
+        'High', ['B10', 'C2']
       ));
     }
-  } else if (diagram) {
-    results.push(check('A9', 'Attached Garage (A9)', 'N/A',
-      `Diagram ${diagram} — no attached garage`,
-      'Only required for Diagrams 1A, 9', 'High', ['A7']));
-  }
-
-  // B8: Valid flood zone
-  const zone = f('B8').toUpperCase();
-  results.push(check(
-    'B8', 'Flood Zone Valid',
-    !zone ? 'FLAG' : VALID_FLOOD_ZONES.has(zone) ? 'PASS' : 'FLAG',
-    zone || '(blank)',
-    'Must be FEMA-approved zone (A, AE, AH, AO, AR, A99, V, VE, A1-A30)',
-    'High', ['B8']
-  ));
-
-  // B9: BFE required for BFE zones
-  const bfe = n('B9');
-  if (BFE_REQUIRED_ZONES.has(zone)) {
-    results.push(check(
-      'B9', 'Base Flood Elevation (BFE) Present',
-      bfe !== null ? 'PASS' : 'FLAG',
-      bfe !== null ? `${bfe} ft (${extraction.fields['B9']?.datum || ''})` : '(blank)',
-      `BFE required for zone ${zone}`,
-      'High', ['B9']
-    ));
-  } else {
-    results.push(check('B9', 'Base Flood Elevation (BFE)', 'N/A', 'Zone does not require BFE', `Zone: ${zone}`, 'High', ['B8']));
-  }
-
-  // B10/B11: Datum consistency
-  const datum10 = f('B10');
-  const datum11 = f('B11') || f('C2');
-  const validDatums = new Set(['NAVD 88', 'NGVD 29', 'OTHER']);
-  results.push(check(
-    'B10', 'Elevation Datum Valid',
-    datum10 && (validDatums.has(datum10.toUpperCase()) || datum10.length > 3) ? 'PASS' : 'FLAG',
-    datum10 || '(blank)',
-    'Must be NAVD 88, NGVD 29, or other approved datum',
-    'High', ['B10']
-  ));
-
-  if (datum10 && datum11) {
-    results.push(check(
-      'B11', 'Datum Consistency (B10 vs C2)',
-      datum10.toUpperCase() === datum11.toUpperCase() ? 'PASS' : 'FLAG',
-      `B10: ${datum10} | C2: ${datum11}`,
-      'All elevation measurements must use same datum',
-      'High', ['B10', 'C2']
-    ));
-  }
-
-  // B13: LiMWA consistency
-  const limwa = f('B13');
-  if (V_ZONES.has(zone)) {
-    results.push(check(
-      'B13', 'LiMWA Status (V-zone requirement)',
-      limwa ? 'PASS' : 'FLAG',
-      limwa || '(blank)',
-      'Required for V/VE zones',
-      'High', ['B13', 'B8']
-    ));
-  } else {
-    results.push(check('B13', 'LiMWA Status', 'N/A', `Zone ${zone} — LiMWA not applicable`, 'Only required for V/VE zones', 'High', ['B8']));
-  }
-
-  // C2c: Required for V-zone + seaward of LiMWA + Diagram 5 or 6
-  const isSeawardLiMWA = limwa?.toLowerCase() === 'yes';
-  const c2cRequired = V_ZONES.has(zone) && isSeawardLiMWA && (diagram === '5' || diagram === '6');
-  const c2c = f('C2c');
-  if (c2cRequired) {
-    results.push(check(
-      'C2c', 'Bottom of Lowest Horizontal Structural Member (C2c)',
-      c2c ? 'PASS' : 'FLAG',
-      c2c || '(blank)',
-      'Required: V/VE zone + seaward of LiMWA + Diagram 5 or 6',
-      'High', ['C2c', 'B8', 'B13', 'A7']
-    ));
-  } else {
-    results.push(check('C2c', 'Bottom of Lowest Horizontal Structural Member (C2c)', 'N/A',
-      `Conditions not met (Zone: ${zone}, LiMWA: ${limwa || 'N/A'}, Diagram: ${diagram})`,
-      'Only required for V/VE zone + seaward of LiMWA + Diagram 5 or 6',
-      'High', ['C2c']
-    ));
   }
 
   // D1: Self-certification flag
@@ -356,48 +443,67 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     ));
   }
 
-  // X3: Freeboard check — C2a vs B9
-  const c2a = n('C2a');
-  const bfeVal = n('B9');
-  if (c2a !== null && bfeVal !== null) {
-    const freeboard = c2a - bfeVal;
-    results.push(check(
-      'X3', 'Freeboard Check — Lowest Floor vs BFE',
-      freeboard >= 0 ? 'PASS' : 'FLAG',
-      `C2a = ${c2a} ft, BFE = ${bfeVal} ft — ${freeboard >= 0 ? freeboard.toFixed(2) + ' ft above' : Math.abs(freeboard).toFixed(2) + ' ft below'} BFE`,
-      'C2a must be at or above B9 (same datum) for NFIP compliance',
-      'High', ['C2a', 'B9'],
-      `Freeboard = C2a − B9 = ${freeboard.toFixed(2)} ft`
-    ));
-  } else if (bfe !== null && c2a === null) {
+  // X3: Freeboard check — auto-unverifiable if COMP_C2a failed
+  if (failedFields.has('C2a')) {
     results.push(check('X3', 'Freeboard Check — Lowest Floor vs BFE', 'UNVERIFIABLE',
-      'C2a missing — cannot compute freeboard', 'C2a required', 'High', ['C2a', 'B9']));
+      'C2a missing — see completeness check', 'C2a required to compute freeboard',
+      'High', ['C2a', 'B9']));
+  } else {
+    const c2a = n('C2a');
+    const bfeVal = n('B9');
+    if (c2a !== null && bfeVal !== null) {
+      const freeboard = c2a - bfeVal;
+      results.push(check(
+        'X3', 'Freeboard Check — Lowest Floor vs BFE',
+        freeboard >= 0 ? 'PASS' : 'FLAG',
+        `C2a = ${c2a} ft, BFE = ${bfeVal} ft — ${freeboard >= 0 ? freeboard.toFixed(2) + ' ft above' : Math.abs(freeboard).toFixed(2) + ' ft below'} BFE`,
+        'C2a must be at or above B9 (same datum) for NFIP compliance',
+        'High', ['C2a', 'B9'],
+        `Freeboard = C2a − B9 = ${freeboard.toFixed(2)} ft`
+      ));
+    } else if (bfeVal !== null && c2a === null) {
+      results.push(check('X3', 'Freeboard Check — Lowest Floor vs BFE', 'UNVERIFIABLE',
+        'C2a missing — cannot compute freeboard', 'C2a required', 'High', ['C2a', 'B9']));
+    }
   }
 
-  // X4: LAG/HAG plausibility
-  const c2f = n('C2f');
-  const c2g = n('C2g');
-  if (c2f !== null && c2g !== null) {
-    results.push(check(
-      'X4', 'LAG/HAG Plausibility',
-      c2g >= c2f ? 'PASS' : 'FLAG',
-      `LAG (C2f) = ${c2f} ft, HAG (C2g) = ${c2g} ft`,
-      'Highest adjacent grade must be ≥ Lowest adjacent grade',
-      'High', ['C2f', 'C2g'],
-      c2g < c2f ? `HAG (${c2g}) is less than LAG (${c2f}) — likely a data entry error` : undefined
-    ));
+  // X4: LAG/HAG plausibility — auto-unverifiable if COMP_C2f or COMP_C2g failed
+  if (failedFields.has('C2f') || failedFields.has('C2g')) {
+    const missing = [
+      failedFields.has('C2f') ? 'LAG (C2f)' : null,
+      failedFields.has('C2g') ? 'HAG (C2g)' : null,
+    ].filter(Boolean).join(', ');
+    results.push(check('X4', 'LAG/HAG Plausibility', 'UNVERIFIABLE',
+      `${missing} missing — see completeness check`,
+      'Both C2f and C2g required', 'High', ['C2f', 'C2g']));
+  } else {
+    const c2f = n('C2f');
+    const c2g = n('C2g');
+    if (c2f !== null && c2g !== null) {
+      results.push(check(
+        'X4', 'LAG/HAG Plausibility',
+        c2g >= c2f ? 'PASS' : 'FLAG',
+        `LAG (C2f) = ${c2f} ft, HAG (C2g) = ${c2g} ft`,
+        'Highest adjacent grade must be ≥ Lowest adjacent grade',
+        'High', ['C2f', 'C2g'],
+        c2g < c2f ? `HAG (${c2g}) is less than LAG (${c2f}) — likely a data entry error` : undefined
+      ));
+    }
   }
 
-  // X5: Multi-story logic
-  const c2b = n('C2b');
-  if (c2a !== null && c2b !== null) {
-    results.push(check(
-      'X5', 'Multi-Story Floor Elevation Logic',
-      c2b > c2a ? 'PASS' : 'FLAG',
-      `Bottom floor (C2a) = ${c2a} ft, Next higher floor (C2b) = ${c2b} ft`,
-      'C2b (next higher floor) must be > C2a (bottom floor)',
-      'High', ['C2a', 'C2b']
-    ));
+  // X5: Multi-story logic (skip if C2a failed COMP)
+  if (!failedFields.has('C2a')) {
+    const c2a = n('C2a');
+    const c2b = n('C2b');
+    if (c2a !== null && c2b !== null) {
+      results.push(check(
+        'X5', 'Multi-Story Floor Elevation Logic',
+        c2b > c2a ? 'PASS' : 'FLAG',
+        `Bottom floor (C2a) = ${c2a} ft, Next higher floor (C2b) = ${c2b} ft`,
+        'C2b (next higher floor) must be > C2a (bottom floor)',
+        'High', ['C2a', 'C2b']
+      ));
+    }
   }
 
   return results;
@@ -507,10 +613,10 @@ Rules:
 - For B9 (BFE), extract just the numeric value
 - For form_version, look at the form header/footer for the form number
 - For extraction_confidence, give your overall confidence across all fields
-- For A5_datum: extract the checked horizontal datum checkbox — "NAD 1927" or "NAD 1983"
+- For A5_datum: extract the checked horizontal datum checkbox — "NAD 1927", "NAD 1983", or "WGS 84"
 - For A6_photos: check the final pages of the document for building photographs; set value to "yes" if photos appear, "no" if absent; note count if visible (e.g. "yes - 4 photos"). Photos are NOT on page 1 — they are attached at the end of the document.
-- For A8a–A8d: extract crawl space or enclosure details if Section A8 is filled; leave blank if the building has no crawl space or enclosure
-- For A9a–A9d: extract attached garage details if Section A9 is filled; leave blank if no attached garage
+- For A8a: enter the numeric square footage if the building has a crawlspace or enclosure. If it has NO crawlspace or enclosure, set the value to the literal string "N/A" (do not leave it blank — the form requires an explicit N/A). For A8b–A8d: extract the details when A8a is a numeric value; if A8a is "N/A", set A8b–A8d to "N/A" as well.
+- For A9a: enter the numeric square footage if the building has an attached garage. If it has NO attached garage, set the value to the literal string "N/A" (do not leave it blank). For A9b–A9d: extract the details when A9a is a numeric value; if A9a is "N/A", set A9b–A9d to "N/A" as well.
 - Do not include any text outside the JSON`
           }
         ]

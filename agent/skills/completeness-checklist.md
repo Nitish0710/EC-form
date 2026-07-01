@@ -1,12 +1,17 @@
-# FEMA Elevation Certificate — Completeness Checklist
+# FEMA Elevation Certificate — Completeness Checklist (v2)
 
 **Form**: FF-206-FY-22-152 (October 2022)
-**Source**: Form pages 1–3 and instructions pages 4–9
+**Source**: Form page 2 of 19 (Section A & B fillable fields) and Instructions pages 9–12.
+
+**POC scope**: Section A — Property Information, and Section B — Flood Insurance Rate Map (FIRM) Information only. Sections C–I are future scope.
+
+**Purpose**: This file answers "is the field filled in at all?" — presence/required checks only. Whether a *filled* value is semantically correct (format, range, consistency) is covered in `fema-rules.md`.
 
 **Logic**:
 - Field present and filled → **PASS**
 - Required field blank → **FLAG**
-- Conditional field, condition not met → **N/A**
+- Conditional field, condition not met, correctly marked "N/A" → **N/A**
+- Conditional field, condition not met, but left truly blank (no value, no "N/A") → **FLAG** (the form requires an explicit "N/A", not silence — see A8.a/A9.a instructions)
 
 ---
 
@@ -16,197 +21,107 @@
 
 | Field key | Label on form | Notes |
 |-----------|--------------|-------|
-| A1 | Building Owner's Name | Full legal name |
-| A2_street | Building Street Address | Street number + name; or P.O. Route and Box No. |
+| A1 | Building Owner's Name | Name(s) of the building owner(s) |
+| A2_street | Building Street Address | Or P.O. Route and Box No. |
 | A2_city | City | |
-| A2_state | State | 2-letter code |
-| A2_zip | ZIP Code | 5 or 9 digit |
-| A3 | Property Description | Lot/Block No., Tax Parcel No., or Legal Description — at least one required |
+| A2_state | State | |
+| A2_zip | ZIP Code | |
+| A3 | Property Description | Lot/Block Numbers, Legal Description, and/or Tax Parcel Number — at least one required |
 | A4 | Building Use | Residential / Non-Residential / Addition / Accessory / Other |
-| A5_lat | Latitude | Decimal degrees (min 6 decimal places) OR DMS format |
-| A5_lon | Longitude | Decimal degrees (min 6 decimal places) OR DMS format |
-| A5_datum | Horizontal Datum | Must be **NAD 1927** or **NAD 1983** (checkbox in A5) |
-| A7 | Building Diagram Number | Must be one of: **1, 1A, 1B, 2, 3, 4, 5, 6, 7, 8, 9** (diagrams on pages 17–19) |
+| A5_lat | Latitude | Decimal degrees (≥6 decimal places) or DMS |
+| A5_lon | Longitude | Decimal degrees (≥6 decimal places) or DMS |
+| A5_datum | Horizontal Datum | Checkbox: **NAD 1927**, **NAD 1983**, or **WGS 84** |
+| A7 | Building Diagram Number | One of the 11 valid diagrams: **1A, 1B, 2A, 2B, 3, 4, 5, 6, 7, 8, 9** |
 
 ### A6 — Building Photographs
 
-> **Location in PDF**: Photographs are NOT attached inline with Section A. They appear as separate pages at the **end of the document** (after Section D / comments).
+> **Location in PDF**: Not inline with Section A — appears as separate photo pages ("Photo One"/"Photo Two", with a continuation page for "Photo Three"/"Photo Four") after Section D.
 
 | Requirement | Condition |
 |-------------|-----------|
-| Minimum 2 photographs | Always required when certificate is used for flood insurance |
-| Front view | Shows building and approach from street |
-| Rear or side view | Shows grade on at least one non-street side |
-| Preferred: 4 photographs | Front, rear, and both sides |
+| Minimum 2 photographs | Always required |
+| Preferred: 4 photographs | One per side (front, rear, left, right) |
+| Caption present | Each photo should be captioned with date and view (Front/Rear/Right Side/Left Side) |
 
 - Field key: `A6_photos`
-- Check: at least 2 photograph pages present at end of document
-- Status if missing or fewer than 2: **FLAG** (severity MEDIUM)
-- Status if content cannot be determined from text extraction: **UNVERIFIABLE**
+- Check: at least 2 photograph pages/captions present
+- Status if fewer than 2: **FLAG** (severity MEDIUM)
+- Status if photo count can't be determined from text extraction: **UNVERIFIABLE**
 
-### A8 — Crawl Space or Enclosure Details (Conditional)
+### A8 — Crawlspace or Enclosure Details (Conditional)
 
-**Condition**: Required when A7 ∈ {1B, 2, 3, 4, 5, 9}
+**Presence gate** (per instructions, Item A8.a): *"If there is no crawlspace or enclosure, enter 'N/A' for Items A8.a-f."* This is a physical-presence gate, not a diagram-number gate — a diagram-vs-A8 plausibility cross-check exists separately in `fema-rules.md` (rule `A7_diagram_a8_consistency`).
 
 | Sub-item | Field key | Label | Required when |
 |----------|-----------|-------|--------------|
-| A8.a | A8a | Square footage of crawl space or enclosure(s) | A8 applies |
-| A8.b | A8b | No. of permanent flood openings within 1.0 ft. above adjacent grade | A8 applies |
-| A8.c | A8c | Total net area of flood openings in A8.b (sq. in.) | A8.b > 0 |
-| A8.d | A8d | Engineered flood openings? (Yes / No) | A8 applies |
+| A8.a | A8a | Sq. footage of crawlspace or enclosure(s) | Always — either a numeric value or explicit "N/A" |
+| A8.b | A8b | Permanent flood opening on ≥2 sides? (Yes/No/N/A) | Always when A8.a is numeric |
+| A8.c | A8c | No. of permanent flood openings (non-engineered / engineered) within 1.0 ft. of grade | When A8.a is numeric — enter "0" if A8.b = No |
+| A8.d | A8d | Total net open area of non-engineered openings (sq. in.) | When A8.c non-engineered count > 0 — enter "0" if none |
+| A8.e | A8e | Total rated area of engineered openings (sq. ft.) | When A8.c engineered count > 0 |
+| A8.f | A8f | Sum of A8.d + A8.e | Only when both A8.d and A8.e are non-zero — otherwise "N/A" |
 
-**Semantic rules**:
-- A8.c ≥ A8.a numerically: must have at least 1 sq. in. of opening per sq. ft. of enclosed area (NFIP non-engineered opening standard)
-- If A8.d = Yes (engineered): A8.c requirement is waived (engineer certifies adequacy)
-- If A8.b = 0: A8.c should be 0 or blank
+**Completeness check**: FLAG if A8.a is truly blank (no value *and* no "N/A"). If A8.a = "N/A", all of A8.b–f should also read "N/A" (or be blank, since the section doesn't apply) — do not FLAG them individually in that case.
 
 ### A9 — Attached Garage Details (Conditional)
 
-**Condition**: Required when A7 ∈ {1A, 9}
+**Presence gate** (per instructions, Item A9.a): *"If there is no attached garage, enter 'N/A' for items A9.a-f."*
 
 | Sub-item | Field key | Label | Required when |
 |----------|-----------|-------|--------------|
-| A9.a | A9a | Square footage of attached garage | A9 applies |
-| A9.b | A9b | No. of permanent flood openings within 1.0 ft. above adjacent grade | A9 applies |
-| A9.c | A9c | Total net area of flood openings in A9.b (sq. in.) | A9.b > 0 |
-| A9.d | A9d | Engineered flood openings? (Yes / No) | A9 applies |
+| A9.a | A9a | Sq. footage of attached garage | Always — either a numeric value or explicit "N/A" |
+| A9.b | A9b | Permanent flood opening on ≥2 sides? (Yes/No/N/A) | Always when A9.a is numeric |
+| A9.c | A9c | No. of permanent flood openings (non-engineered / engineered, incl. garage-door openings) within 1.0 ft. of grade | When A9.a is numeric — enter "0" if A9.b = No |
+| A9.d | A9d | Total net open area of non-engineered openings (sq. in.) | When A9.c non-engineered count > 0 — enter "0" if none |
+| A9.e | A9e | Total rated area of engineered openings (sq. ft.) | When A9.c engineered count > 0 |
+| A9.f | A9f | Sum of A9.d + A9.e | Only when both A9.d and A9.e are non-zero — otherwise "N/A" |
 
-**Semantic rules**: Same flood opening ratio as A8.
+**Completeness check**: Same logic as A8 — FLAG only if A9.a is truly blank (no value, no "N/A").
 
 ---
 
 ## Section B — Flood Insurance Rate Map (FIRM) Information
 
+> Source: Instructions pages 10–12 (Section B, Items B1.a–B13).
+
 ### Always Required
 
 | Field key | Label on form | Notes |
 |-----------|--------------|-------|
-| B1a | NFIP Community Name | Full community/jurisdiction name |
-| B1b | NFIP Community Number | 6-digit code (e.g., 120075) |
-| B2 | County | County or parish name |
-| B3 | State | 2-letter code; must match A2_state |
-| B4 | Map/Panel Number | FIRM panel number (typically 12 digits) |
-| B5 | Suffix | Panel suffix letter (e.g., H) |
-| B6 | FIRM Index Date | Date of current FIRM index |
-| B7 | FIRM Panel Effective/Revised Date | Date the panel was last revised |
-| B8 | Flood Zone(s) | Must be a FEMA-approved zone: A, AE, AH, AO, AR, A99, V, VE, or numbered A/V zones |
-| B11 | Elevation Datum | Datum used for the BFE and form elevations (NAVD 88 or NGVD 29) |
+| B1a | NFIP Community Name | For unincorporated areas: county name + "unincorporated area" |
+| B1b | NFIP Community Identification Number | Six-digit code |
+| B2 | County Name | Or "independent city" |
+| B3 | State | Two-letter abbreviation |
+| B4 | Map/Panel Number | 10-character Map Number (county-wide format) or Community Panel Number |
+| B5 | Suffix | Panel suffix letter |
+| B6 | FIRM Index Date | Effective or map-revised date shown on the FIRM Index |
+| B7 | FIRM Panel Effective/Revised Date | Effective date shown on the current FIRM panel |
+| B8 | Flood Zone(s) | All zones containing "A" or "V" are Special Flood Hazard Areas (SFHAs) |
+| B11 | Elevation datum used for BFE | Checkbox: NGVD 1929 / NAVD 1988 / Other-Source |
+| B12 | CBRS/OPA status | Yes/No checkbox; if Yes, Designation (CBRS or OPA) also required |
+| B13 | Seaward of LiMWA? | Yes/No checkbox — **always answered**, not conditional; per instructions, check "No" if the LiMWA is not shown on the FIRM (do not leave blank) |
 
 ### Conditional
 
-| Field key | Label | Condition |
-|-----------|-------|-----------|
-| B9 | Base Flood Elevation (BFE) | Required for zones: AE, AH, VE, A1–A30, V1–V30 |
-| B10 | Source of BFE | Required when B9 is present (FIS, FIRM, LOMA, LOMR, community, etc.) |
-| B12 | Is building in CBRS or OPA? | Required — Yes / No checkbox |
-| B13 | Seaward of Limit of Moderate Wave Action (LiMWA)? | Required for V / VE zones only |
+| Field key | Label | Condition | Required value |
+|-----------|-------|-----------|-----------------|
+| B9 | Base Flood Elevation (BFE) or Base Flood Depth | Zones **A1–A30, AE, AH, V1–V30, VE, AR, AR/A, AR/AE, AR/A1–A30, AR/AH** → numeric BFE required. Zones **AO, AR/AO** → Base Flood Depth required instead. | If neither is obtainable from FIS/FIRM/community in an A Zone, enter "N/A" in B9 and complete Section E (out of POC scope). |
+| B10 | Source of BFE/depth entered in B9 | Required whenever B9 contains a value (not "N/A") | Checkbox: FIS / FIRM / Community Determined / Other (name required if Other) |
 
-**Cross-field**:
-- B3 (state) must match A2_state
-- B11 datum must be consistent with C2 elevation measurements
-
----
-
-## Section C — Building Elevation Information
-
-> Used for NFIP flood insurance rating. Use this section for zones A1–A30, AE, AH, AO, AR, V, VE, V1–V30.
-
-### Always Required
-
-| Field key | Label | Notes |
-|-----------|-------|-------|
-| C1 | Basis of Elevation | Construction Drawings / Building Under Construction / Finished Construction |
-| C2_datum | Vertical Datum (for all C2 measurements) | Must match B11 |
-
-### Elevation Measurements
-
-| Field key | Label | Required when |
-|-----------|-------|--------------|
-| C2a | Top of Bottom Floor (including basement, crawl space, or enclosure floor) | Always |
-| C2b | Top of the Next Higher Floor | Required if building has multiple above-grade floors |
-| C2c | Bottom of Lowest Horizontal Structural Member | Required: V/VE zone **AND** seaward of LiMWA (B13=Yes) **AND** Diagram 5 or 6 |
-| C2d | Attached Garage (top of slab) | Required if A7 ∈ {1A, 9} |
-| C2e | Lowest Elevation of Machinery or Equipment Servicing the Building | Required if M&E (e.g., HVAC, utilities) is present below BFE |
-| C2f | Lowest Adjacent Finished Grade (LAG) | Always |
-| C2g | Highest Adjacent Finished Grade (HAG) | Always |
-| C2h | Lowest Adjacent Grade at Lowest Elevation of Deck or Stairs | Required for Zone AO or when deck/stairs present |
-
-**Arithmetic rules**:
-- C2g ≥ C2f (HAG must be ≥ LAG)
-- C2a ≥ B9 for NFIP compliance (freeboard check)
-- C2b > C2a if both present
-
----
-
-## Section D — Surveyor, Engineer, or Architect Certification
-
-### Always Required
-
-| Field key | Label |
-|-----------|-------|
-| D1_name | Certifier's Name |
-| D1_license | License / Certificate Number |
-| D1_title | Title |
-| D1_company | Company |
-| D1_address | Address |
-| D2 | Date of Certification |
-
-### Conditional
-
-| Field key | Label | Condition |
-|-----------|-------|-----------|
-| D3 | Comments | Must document: M&E type/location if C2e present; floodproofing method if A4 = Non-Residential and floodproofed; any exceptions or variances |
-
-**Cross-field**:
-- D1_name must NOT match A1 (Building Owner) without additional review (self-certification flag)
-
----
-
-## Section E — Building Elevation Information (Community Official Use)
-
-> Used by community officials to document community floodplain management elevations. Typically completed by local floodplain manager, not the certifier.
-
-| Field key | Label | Condition |
-|-----------|-------|-----------|
-| E1 | Certificate is used for | Indicates purpose (LOMA, rating, permit, etc.) |
-| E2 | Lowest floor elevation | If community requires separate elevation for permitting |
-
----
-
-## Section F / Comments
-
-> Free-text comments section. Required to document:
-- If C2e is filled: describe M&E type and location
-- If non-residential floodproofing: describe floodproofing method
-- Any variances or exceptions from NFIP requirements
+**Completeness check for B9/B10**: FLAG if B8 (flood zone) is one of the BFE-required zones listed above and B9 is blank. FLAG if B9 is present with a value and B10 is blank. N/A if B8 indicates a zone where BFE is not applicable (B, C, X, D) — B9/B10 not required.
 
 ---
 
 ## Building Photographs
 
-> **Pages**: Attached at the **end of the document**, after the form sections.
+> **Pages**: Attached as separate pages after Section D, before the end of the document.
 
 | Requirement |
 |-------------|
-| At least 2 photos required for flood insurance purposes |
-| Photo 1: Front of building showing street approach |
-| Photo 2: Rear or side of building showing grade |
-| Photos should show the full building and enough grade to verify diagram selection |
-
----
-
-## Cross-Field Completeness Rules
-
-| Rule | Condition | Flag if |
-|------|-----------|---------|
-| A2_state = B3 | Always | State in address ≠ state in flood map section |
-| B11 = C2_datum | Always | Elevation datum in B11 ≠ datum used in C2 measurements |
-| A7 → A8 | If A7 ∈ {1B, 2, 3, 4, 5, 9} | A8 sub-items (a–d) missing |
-| A7 → A9 | If A7 ∈ {1A, 9} | A9 sub-items (a–d) missing |
-| A7 → C2c | If V/VE zone + B13=Yes + A7 ∈ {5, 6} | C2c blank |
-| A7 → C2d | If A7 ∈ {1A, 9} | C2d blank |
-| C2e → D3 | If C2e present | D3 must describe M&E type and location |
-| B9 → B10 | If B9 present | B10 (source of BFE) must be filled |
+| At least 2 photos required |
+| Photo 1: Front view showing street approach |
+| Photo 2: Rear or side view showing grade |
+| Photos should show the full building and enough grade to verify diagram selection (A7) |
 
 ---
 
@@ -215,13 +130,17 @@
 ```json
 {
   "check_id": "COMP_A8a",
-  "check_name": "Crawl Space Area (A8.a) — Required",
+  "check_name": "Crawlspace / Enclosure Area (A8.a) — Required",
   "status": "FLAG",
   "found": "(blank)",
-  "expected": "Required for Diagram 2 — square footage of crawl space or enclosure",
+  "expected": "A numeric square footage, or 'N/A' if no crawlspace/enclosure exists",
   "confidence": "High",
-  "note": "A8 is required when building diagram is 1B, 2, 3, 4, 5, or 9",
-  "rules_version": "v1",
+  "note": "A8.a was left blank instead of a value or explicit 'N/A'",
+  "rules_version": "v2",
   "highlight_refs": ["A8"]
 }
 ```
+
+---
+
+*v2 — frozen for form FF-206-FY-22-152. Rebuilt directly from PDF form page 2 of 19 and Instructions pages 9–12. Section A and B only; Sections C–I deferred to a future revision.*
