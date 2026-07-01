@@ -2,35 +2,17 @@
 
 import { useState } from 'react';
 import FlagCard from './FlagCard';
-
-interface Check {
-  check_id: string;
-  check_name: string;
-  status: 'PASS' | 'FLAG' | 'N/A' | 'UNVERIFIABLE';
-  found: string;
-  expected: string;
-  confidence: 'High' | 'Medium' | 'Low';
-  note?: string;
-  rules_version: string;
-  highlight_refs: string[];
-  review?: {
-    action: 'confirmed' | 'override';
-    reason_code?: string;
-    comment?: string;
-    reviewed_at?: string;
-  };
-  effective_status?: 'FLAG' | 'DISMISSED';
-}
+import type { Check, VersionedOutput } from '@/lib/types';
 
 interface ResultsPanelProps {
   checks: Check[];
-  outputVersion: number;
-  downloadUrl: string | null;
+  versions: VersionedOutput[];
   onFeedback: (checkId: string, action: 'confirmed' | 'override', reasonCode?: string, comment?: string) => void;
+  onDownload: (v: VersionedOutput) => void;
   onHighlight: (refs: string[]) => void;
 }
 
-export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFeedback, onHighlight }: ResultsPanelProps) {
+export default function ResultsPanel({ checks, versions, onFeedback, onDownload, onHighlight }: ResultsPanelProps) {
   const [activeTab, setActiveTab] = useState<'all' | 'flag' | 'pass' | 'na'>('all');
 
   const flagChecks = checks.filter(c => c.status === 'FLAG' && !c.effective_status);
@@ -42,22 +24,46 @@ export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFee
                         activeTab === 'na' ? naChecks :
                         checks;
 
+  const latestVersion = versions[versions.length - 1];
+
   return (
     <section className="flex-1 flex flex-col overflow-hidden bg-gray-100">
       {/* Header */}
       <div className="bg-white border-b border-gray-300 px-5 pt-4 pb-0 flex-shrink-0">
-        <div className="text-sm font-semibold text-gray-900 mb-1">
-          Validation Results
-        </div>
-        <div className="text-xs font-mono text-gray-600 mb-3 flex gap-4">
-          <span>Version {outputVersion}</span>
-          <span>{checks.length} checks</span>
-          {downloadUrl && (
-            <a href={downloadUrl} className="text-teal-600 hover:underline">
-              Download Latest
-            </a>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-sm font-semibold text-gray-900">Validation Results</div>
+          {latestVersion && (
+            <div className="text-[10px] font-mono text-gray-500">
+              {latestVersion.summary.pass}P · {latestVersion.summary.flag}F · {latestVersion.summary.na}N/A
+            </div>
           )}
         </div>
+
+        {/* Version history row */}
+        {versions.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-[9px] font-bold tracking-widest uppercase text-gray-400">Download</span>
+            {versions.map(v => (
+              <button
+                key={v.version}
+                onClick={() => onDownload(v)}
+                title={`v${v.version} · ${v.summary.total} checks · ${v.summary.overrides} override(s) · generated ${new Date(v.generated_at).toLocaleTimeString()}`}
+                className="flex items-center gap-1 text-[10px] font-mono border border-gray-300 rounded px-2 py-0.5 bg-white hover:bg-teal-50 hover:border-teal-400 hover:text-teal-700 transition"
+              >
+                <span className="font-bold">v{v.version}</span>
+                <span className="text-gray-400">
+                  {v.version === 1
+                    ? 'original'
+                    : `${v.summary.overrides} override${v.summary.overrides !== 1 ? 's' : ''}`}
+                </span>
+                {/* download icon */}
+                <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="ml-0.5">
+                  <path d="M6 1v7M3 6l3 3 3-3M2 11h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-0 -mb-px">
@@ -132,7 +138,8 @@ export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFee
             {passChecks.map(check => (
               <div
                 key={check.check_id}
-                className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-100"
+                className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-200 cursor-pointer"
+                onClick={() => onHighlight(check.highlight_refs || [])}
               >
                 <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
                   {check.check_id}
@@ -158,7 +165,8 @@ export default function ResultsPanel({ checks, outputVersion, downloadUrl, onFee
             {naChecks.map(check => (
               <div
                 key={check.check_id}
-                className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-100"
+                className="flex items-center gap-3 px-3 py-2 rounded mb-1 hover:bg-gray-200 cursor-pointer"
+                onClick={() => onHighlight(check.highlight_refs || [])}
               >
                 <div className="font-mono text-[10px] bg-gray-200 border border-gray-300 px-2 py-0.5 rounded text-center min-w-[40px]">
                   {check.check_id}

@@ -14,6 +14,9 @@ const BFE_REQUIRED_ZONES = new Set([
   'A21','A22','A23','A24','A25','A26','A27','A28','A29','A30',
 ]);
 const V_ZONES = new Set(['V', 'VE']);
+const VALID_DIAGRAMS = new Set(['1', '1A', '1B', '2', '3', '4', '5', '6', '7', '8', '9']);
+const A8_REQUIRED_DIAGRAMS = new Set(['1B', '2', '3', '4', '5', '9']);
+const A9_REQUIRED_DIAGRAMS = new Set(['1A', '9']);
 
 interface FieldValue {
   value: string;
@@ -67,6 +70,7 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
   const results: CheckResult[] = [];
   const f = (k: string) => field(extraction, k);
   const n = (k: string) => num(extraction, k);
+  const diagram = f('A7').trim();
 
   // P1: Extraction confidence gate
   const conf = extraction.extraction_confidence;
@@ -93,7 +97,7 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     ['A1', 'Building Owner Name', 'A1'],
     ['A3', 'Parcel / Legal Description', 'A3'],
     ['A4', 'Building Use', 'A4'],
-    ['A6', 'Horizontal Datum', 'A6'],
+    ['A5_datum', 'Horizontal Datum (NAD)', 'A5'],
     ['A7', 'Building Diagram Number', 'A7'],
     ['B1a', 'NFIP Community Name', 'B1a'],
     ['B1b', 'NFIP Community Number', 'B1b'],
@@ -148,6 +152,113 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
     'High', ['A5'],
     !latLonOk && lat ? `Lat decimals: ${latDecimals}, Lon decimals: ${lonDecimals}` : undefined
   ));
+
+  // A4: Valid building use
+  const a4Val = f('A4').toLowerCase();
+  if (a4Val) {
+    const validUses = ['residential', 'non-residential', 'addition', 'accessory', 'other'];
+    results.push(check(
+      'A4', 'Building Use — Valid Value',
+      validUses.some(u => a4Val.includes(u)) ? 'PASS' : 'FLAG',
+      f('A4'),
+      'Must be: Residential, Non-Residential, Addition, Accessory, or Other',
+      'High', ['A4']
+    ));
+  }
+
+  // A5_datum: Horizontal datum (NAD 1927 or NAD 1983)
+  const datumNAD = f('A5_datum');
+  results.push(check(
+    'A5_datum', 'Horizontal Datum (A5)',
+    !datumNAD ? 'FLAG' : datumNAD.toUpperCase().includes('NAD') ? 'PASS' : 'FLAG',
+    datumNAD || '(blank)',
+    'Must be NAD 1927 or NAD 1983',
+    'High', ['A5']
+  ));
+
+  // A6: Photographs at end of document
+  const photosVal = f('A6_photos').toLowerCase();
+  results.push(check(
+    'A6', 'Building Photographs (A6)',
+    !photosVal || photosVal === 'no' ? 'FLAG' : 'PASS',
+    photosVal || '(not detected)',
+    'At least 2 photographs required at end of document (front view + rear/side view)',
+    'Medium', ['A6'],
+    !photosVal ? 'Photos may be present but could not be detected from text extraction' : undefined
+  ));
+
+  // A7: Valid diagram number
+  if (diagram) {
+    results.push(check(
+      'A7', 'Building Diagram — Valid Number',
+      VALID_DIAGRAMS.has(diagram) ? 'PASS' : 'FLAG',
+      diagram,
+      'Must be one of: 1, 1A, 1B, 2, 3, 4, 5, 6, 7, 8, 9 (see form pages 17–19)',
+      'High', ['A7']
+    ));
+  }
+
+  // A8: Crawl space / enclosure (conditional on diagram)
+  if (diagram && A8_REQUIRED_DIAGRAMS.has(diagram)) {
+    const a8a = f('A8a');
+    const a8b = f('A8b');
+    const a8c = f('A8c');
+    const a8d = f('A8d');
+    results.push(check('COMP_A8a', 'Crawl Space Area (A8.a) — Required', a8a ? 'PASS' : 'FLAG',
+      a8a || '(blank)', `sq. ft. required for Diagram ${diagram}`, 'High', ['A8']));
+    results.push(check('COMP_A8b', 'Flood Openings Count (A8.b) — Required', a8b ? 'PASS' : 'FLAG',
+      a8b || '(blank)', `No. of permanent flood openings required for Diagram ${diagram}`, 'High', ['A8']));
+    results.push(check('COMP_A8d', 'Engineered Openings (A8.d) — Required', a8d ? 'PASS' : 'FLAG',
+      a8d || '(blank)', `Yes/No required for Diagram ${diagram}`, 'High', ['A8']));
+    const sqft = parseFloat(a8a);
+    const sqin = parseFloat(a8c);
+    const engineered = a8d.toLowerCase() === 'yes';
+    if (!isNaN(sqft) && !isNaN(sqin) && !engineered) {
+      results.push(check(
+        'A8_ratio', 'Flood Opening Ratio (A8) — NFIP Standard',
+        sqin >= sqft ? 'PASS' : 'FLAG',
+        `${sqin} sq.in. opening area for ${sqft} sq.ft. enclosed area`,
+        '≥ 1 sq.in. per sq.ft. of enclosed area (non-engineered openings)',
+        'Medium', ['A8'],
+        sqin < sqft ? `Deficit: need ${sqft} sq.in., have ${sqin} sq.in.` : undefined
+      ));
+    }
+  } else if (diagram) {
+    results.push(check('A8', 'Crawl Space / Enclosure (A8)', 'N/A',
+      `Diagram ${diagram} — no crawl space or enclosure`,
+      'Only required for Diagrams 1B, 2, 3, 4, 5, 9', 'High', ['A7']));
+  }
+
+  // A9: Attached garage (conditional on diagram)
+  if (diagram && A9_REQUIRED_DIAGRAMS.has(diagram)) {
+    const a9a = f('A9a');
+    const a9b = f('A9b');
+    const a9c = f('A9c');
+    const a9d = f('A9d');
+    results.push(check('COMP_A9a', 'Garage Area (A9.a) — Required', a9a ? 'PASS' : 'FLAG',
+      a9a || '(blank)', `sq. ft. required for Diagram ${diagram}`, 'High', ['A9']));
+    results.push(check('COMP_A9b', 'Garage Flood Openings Count (A9.b) — Required', a9b ? 'PASS' : 'FLAG',
+      a9b || '(blank)', `No. of permanent flood openings required for Diagram ${diagram}`, 'High', ['A9']));
+    results.push(check('COMP_A9d', 'Garage Engineered Openings (A9.d) — Required', a9d ? 'PASS' : 'FLAG',
+      a9d || '(blank)', `Yes/No required for Diagram ${diagram}`, 'High', ['A9']));
+    const sqft9 = parseFloat(a9a);
+    const sqin9 = parseFloat(a9c);
+    const engineered9 = a9d.toLowerCase() === 'yes';
+    if (!isNaN(sqft9) && !isNaN(sqin9) && !engineered9) {
+      results.push(check(
+        'A9_ratio', 'Garage Flood Opening Ratio (A9) — NFIP Standard',
+        sqin9 >= sqft9 ? 'PASS' : 'FLAG',
+        `${sqin9} sq.in. opening area for ${sqft9} sq.ft. garage`,
+        '≥ 1 sq.in. per sq.ft. of garage area (non-engineered openings)',
+        'Medium', ['A9'],
+        sqin9 < sqft9 ? `Deficit: need ${sqft9} sq.in., have ${sqin9} sq.in.` : undefined
+      ));
+    }
+  } else if (diagram) {
+    results.push(check('A9', 'Attached Garage (A9)', 'N/A',
+      `Diagram ${diagram} — no attached garage`,
+      'Only required for Diagrams 1A, 9', 'High', ['A7']));
+  }
 
   // B8: Valid flood zone
   const zone = f('B8').toUpperCase();
@@ -210,7 +321,6 @@ function runValidation(extraction: ExtractionResult): CheckResult[] {
   }
 
   // C2c: Required for V-zone + seaward of LiMWA + Diagram 5 or 6
-  const diagram = f('A7');
   const isSeawardLiMWA = limwa?.toLowerCase() === 'yes';
   const c2cRequired = V_ZONES.has(zone) && isSeawardLiMWA && (diagram === '5' || diagram === '6');
   const c2c = f('C2c');
@@ -345,8 +455,17 @@ export async function POST(request: NextRequest) {
     "A4": { "value": "", "confidence": 0.0, "page": 1 },
     "A5_lat": { "value": "", "confidence": 0.0, "page": 1 },
     "A5_lon": { "value": "", "confidence": 0.0, "page": 1 },
-    "A6": { "value": "", "confidence": 0.0, "page": 1 },
+    "A5_datum": { "value": "", "confidence": 0.0, "page": 1 },
+    "A6_photos": { "value": "", "confidence": 0.0, "page": 1 },
     "A7": { "value": "", "confidence": 0.0, "page": 1 },
+    "A8a": { "value": "", "unit": "sq ft", "confidence": 0.0, "page": 1 },
+    "A8b": { "value": "", "confidence": 0.0, "page": 1 },
+    "A8c": { "value": "", "unit": "sq in", "confidence": 0.0, "page": 1 },
+    "A8d": { "value": "", "confidence": 0.0, "page": 1 },
+    "A9a": { "value": "", "unit": "sq ft", "confidence": 0.0, "page": 1 },
+    "A9b": { "value": "", "confidence": 0.0, "page": 1 },
+    "A9c": { "value": "", "unit": "sq in", "confidence": 0.0, "page": 1 },
+    "A9d": { "value": "", "confidence": 0.0, "page": 1 },
     "B1a": { "value": "", "confidence": 0.0, "page": 1 },
     "B1b": { "value": "", "confidence": 0.0, "page": 1 },
     "B2": { "value": "", "confidence": 0.0, "page": 1 },
@@ -388,6 +507,10 @@ Rules:
 - For B9 (BFE), extract just the numeric value
 - For form_version, look at the form header/footer for the form number
 - For extraction_confidence, give your overall confidence across all fields
+- For A5_datum: extract the checked horizontal datum checkbox — "NAD 1927" or "NAD 1983"
+- For A6_photos: check the final pages of the document for building photographs; set value to "yes" if photos appear, "no" if absent; note count if visible (e.g. "yes - 4 photos"). Photos are NOT on page 1 — they are attached at the end of the document.
+- For A8a–A8d: extract crawl space or enclosure details if Section A8 is filled; leave blank if the building has no crawl space or enclosure
+- For A9a–A9d: extract attached garage details if Section A9 is filled; leave blank if no attached garage
 - Do not include any text outside the JSON`
           }
         ]
